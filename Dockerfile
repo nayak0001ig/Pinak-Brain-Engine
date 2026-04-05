@@ -1,24 +1,23 @@
-# Use a lightweight Python 3.11 image
+# Use official lightweight Python image
 FROM python:3.11-slim
 
-# Set working directory inside the container
+# Set work directory
 WORKDIR /app
 
-# Prevent Python from writing .pyc files and buffering stdout/stderr
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-# Install system dependencies
+# Install system dependencies (For security and network)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only the requirements first (Layer Caching Optimization)
+# Copy and install requirements first (Caching strategy)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
+# Copy the brain folder
 COPY cloud_engine/ ./cloud_engine/
 
-# Command to run the brain
+# IMPORTANT: Set Environment Variable for Python to find the module
+ENV PYTHONPATH=/app
+
+# Start command
 CMD ["python", "cloud_engine/brain.py"]
