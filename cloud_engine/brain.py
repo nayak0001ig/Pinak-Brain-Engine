@@ -4,18 +4,19 @@ import logging
 import time
 import threading
 import uvicorn
-from fastapi import FastAPI
+from typing import Dict
+from fastapi import FastAPI, Header, HTTPException, Request
 
-# Professional Logging Setup
+# --- Professional Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("PinakBrain")
 
-# FastAPI Initialization to satisfy Render's Port Binding
-app = FastAPI()
+# --- FastAPI Initialization ---
+app = FastAPI(title="Project Pinak: Elite Receiver", version="2.1.0")
 
-@app.get("/")
-async def health_check():
-    return {"status": "ONLINE", "node": "Pinak Elite 2026"}
+# SECURITY: Internal Handshake Key (Fetch from Render Env)
+# Default value is a backup, but always set this in Render Dashboard for "Tight Security"
+INTERNAL_AUTH_KEY = os.getenv("INTERNAL_SECRET_KEY", "Pinak_Secure_2026_v1")
 
 class PinakBrain:
     def __init__(self, config_path: str = "secure_keys/config.txt"):
@@ -37,32 +38,64 @@ class PinakBrain:
         return "".join(c for c in key if c.isprintable() and not c.isspace()).replace('"', '').replace("'", "")
 
     def generate_response(self, user_prompt: str) -> str:
-        if not self.api_key: return "API_KEY_MISSING"
+        if not self.api_key: return "FATAL_ERROR: API_KEY_MISSING."
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload = {
             "model": self.model_stack[0],
-            "messages": [{"role": "user", "content": user_prompt}]
+            "messages": [
+                {"role": "system", "content": "You are Pinak, an elite 2026 AI agent for the brand NAYRIT. Be technical and precise."},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.5
         }
         try:
             response = requests.post(self.api_url, headers=headers, json=payload, timeout=20)
-            return response.json()['choices'][0]['message']['content'] if response.status_code == 200 else "ERROR"
-        except: return "NETWORK_ERROR"
+            if response.status_code == 200:
+                return response.json()['choices'][0]['message']['content']
+            return f"Error Code: {response.status_code}"
+        except Exception as e:
+            return f"Network Exception: {str(e)}"
 
-# --- Main Logic ---
-pinak = PinakBrain()
+# Singleton Instance
+pinak_instance = PinakBrain()
 
+# --- WEBHOOK ENDPOINT: This is where WhatsApp will send messages ---
+@app.post("/chat")
+async def chat_receiver(request: Request, x_api_key: str = Header(None)):
+    """
+    TIGHT SECURITY: Only authorized gateways can talk to the brain.
+    """
+    if x_api_key != INTERNAL_AUTH_KEY:
+        logger.warning(f"Unauthorized access attempt blocked from IP: {request.client.host}")
+        raise HTTPException(status_code=403, detail="Forbidden: Invalid API Key")
+
+    try:
+        data = await request.json()
+        user_message = data.get("message", "")
+        
+        if not user_message:
+            return {"status": "error", "reply": "No message received."}
+
+        logger.info(f"Processing message for NAYRIT: {user_message[:20]}...")
+        ai_reply = pinak_instance.generate_response(user_message)
+        
+        return {"status": "success", "reply": ai_reply}
+    except Exception as e:
+        logger.error(f"Endpoint Error: {e}")
+        return {"status": "error", "reply": "System processing failure."}
+
+@app.get("/")
+async def health():
+    return {"status": "ONLINE", "mode": "Secure Receiver Active"}
+
+# --- Background Heartbeat ---
 def run_heartbeat():
-    logger.info("--- Project Pinak: Elite 2026 Brain Node ---")
-    logger.info(f"Handshake: {pinak.generate_response('Confirm status.')}")
     while True:
-        logger.info("Heartbeat: Pinak Node is active and monitoring.")
+        logger.info("Heartbeat: Pinak Secure Node is monitoring traffic.")
         time.sleep(600)
 
 if __name__ == "__main__":
-    # Start Heartbeat in background
     threading.Thread(target=run_heartbeat, daemon=True).start()
-    
-    # Start Web Server for Render
     port = int(os.environ.get("PORT", 10000))
-    logger.info(f"Binding to port {port} for Render Health Check.")
+    logger.info(f"Pinak Elite Node exposing on port {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port)
